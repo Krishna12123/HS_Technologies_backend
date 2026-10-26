@@ -1,0 +1,963 @@
+openapi: 3.0.3
+info:
+  title: School ERP System API
+  version: 1.0.0
+  description: >
+    Production-ready REST API for School ERP System backend supporting Exam Management,
+    Result Management, Masters, Settings, and Account modules.
+servers:
+  - url: /api/v1
+    description: API v1 Base Endpoint
+
+tags:
+  - name: Examinations
+    description: Examination scheduling, conflict detection, and lifecycle management
+  - name: Results
+    description: Marks entry, grading calculations, publication, and student report cards
+  - name: Masters
+    description: Standard reference records (rooms, subjects, grading schemes, academic years)
+  - name: Settings
+    description: School profile, academic settings, and examination policies
+  - name: Account
+    description: Authenticated user profile, preferences, and password management
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    TestHeaderAuth:
+      type: apiKey
+      in: header
+      name: x-user-id
+      description: Gateway / Test User ID for environment simulation
+
+  schemas:
+    ApiResponseMeta:
+      type: object
+      properties:
+        requestId:
+          type: string
+        pagination:
+          type: object
+          properties:
+            total:
+              type: integer
+            page:
+              type: integer
+            limit:
+              type: integer
+            totalPages:
+              type: integer
+            hasNextPage:
+              type: boolean
+            hasPrevPage:
+              type: boolean
+
+    ApiError:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: EXAM_ROOM_CONFLICT
+            message:
+              type: string
+              example: Room conflict detected
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+                  code:
+                    type: string
+            requestId:
+              type: string
+
+    Exam:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        academicYearId:
+          type: string
+        examPeriodId:
+          type: string
+        examTypeId:
+          type: string
+        classId:
+          type: string
+        subjects:
+          type: array
+          items:
+            type: object
+            properties:
+              subjectId:
+                type: string
+              subjectName:
+                type: string
+              maxMarks:
+                type: number
+              passMarks:
+                type: number
+        status:
+          type: string
+          enum: [DRAFT, SCHEDULED, PUBLISHED, IN_PROGRESS, COMPLETED, CANCELLED]
+
+    ExamSchedule:
+      type: object
+      properties:
+        id:
+          type: string
+        examId:
+          type: string
+        subjectId:
+          type: string
+        date:
+          type: string
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        roomId:
+          type: string
+        studentCount:
+          type: integer
+        invigilatorIds:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [SCHEDULED, COMPLETED, CANCELLED]
+
+    Result:
+      type: object
+      properties:
+        id:
+          type: string
+        studentId:
+          type: string
+        examId:
+          type: string
+        subjectId:
+          type: string
+        maxMarks:
+          type: number
+        marksObtained:
+          type: number
+        percentage:
+          type: number
+        grade:
+          type: string
+        isPassing:
+          type: boolean
+        status:
+          type: string
+          enum: [DRAFT, PUBLISHED, CORRECTED]
+
+    MasterRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        category:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE]
+
+    SchoolProfile:
+      type: object
+      properties:
+        schoolName:
+          type: string
+        schoolCode:
+          type: string
+        address:
+          type: string
+        contactNumber:
+          type: string
+        officialEmail:
+          type: string
+        logoUrl:
+          type: string
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        schoolId:
+          type: string
+        contactNumber:
+          type: string
+
+security:
+  - BearerAuth: []
+  - TestHeaderAuth: []
+
+paths:
+  # =========================================================
+  # EXAMINATIONS
+  # =========================================================
+  /exams:
+    get:
+      tags: [Examinations]
+      summary: List and filter examinations
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+        - in: query
+          name: name
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [DRAFT, SCHEDULED, PUBLISHED, IN_PROGRESS, COMPLETED, CANCELLED]
+      responses:
+        '200':
+          description: Paginated examinations list
+    post:
+      tags: [Examinations]
+      summary: Create an examination
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, academicYearId, examPeriodId, examTypeId, classId, subjects, startDate, endDate]
+              properties:
+                name:
+                  type: string
+                academicYearId:
+                  type: string
+                examPeriodId:
+                  type: string
+                examTypeId:
+                  type: string
+                classId:
+                  type: string
+                subjects:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      subjectId:
+                        type: string
+                      subjectName:
+                        type: string
+                      maxMarks:
+                        type: number
+                      passMarks:
+                        type: number
+                startDate:
+                  type: string
+                endDate:
+                  type: string
+      responses:
+        '201':
+          description: Examination created successfully
+
+  /exams/{examId}:
+    get:
+      tags: [Examinations]
+      summary: Retrieve examination details
+      parameters:
+        - in: path
+          name: examId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Examination details
+        '404':
+          description: Examination not found
+    patch:
+      tags: [Examinations]
+      summary: Update examination details
+      parameters:
+        - in: path
+          name: examId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                startDate:
+                  type: string
+                endDate:
+                  type: string
+      responses:
+        '200':
+          description: Examination updated successfully
+
+  /exams/{examId}/status:
+    patch:
+      tags: [Examinations]
+      summary: Update examination lifecycle status
+      parameters:
+        - in: path
+          name: examId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [DRAFT, SCHEDULED, PUBLISHED, IN_PROGRESS, COMPLETED, CANCELLED]
+      responses:
+        '200':
+          description: Status transition succeeded
+        '422':
+          description: Invalid status transition
+
+  /exams/{examId}/schedules:
+    get:
+      tags: [Examinations]
+      summary: List examination schedules
+      parameters:
+        - in: path
+          name: examId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of schedules
+    post:
+      tags: [Examinations]
+      summary: Create an examination schedule with real conflict validation
+      parameters:
+        - in: path
+          name: examId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subjectId, date, startTime, endTime, roomId, studentCount, invigilatorIds]
+              properties:
+                subjectId:
+                  type: string
+                date:
+                  type: string
+                startTime:
+                  type: string
+                  format: date-time
+                endTime:
+                  type: string
+                  format: date-time
+                roomId:
+                  type: string
+                studentCount:
+                  type: integer
+                invigilatorIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Schedule created successfully
+        '409':
+          description: Room or Invigilator conflict detected
+        '422':
+          description: Capacity or time-range validation failure
+
+  /exams/{examId}/schedules/{scheduleId}:
+    patch:
+      tags: [Examinations]
+      summary: Update schedule with conflict verification excluding self
+      parameters:
+        - in: path
+          name: examId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: scheduleId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                startTime:
+                  type: string
+                  format: date-time
+                endTime:
+                  type: string
+                  format: date-time
+                roomId:
+                  type: string
+                studentCount:
+                  type: integer
+                invigilatorIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Schedule updated successfully
+
+  /exams/{examId}/schedules/{scheduleId}/status:
+    patch:
+      tags: [Examinations]
+      summary: Cancel or change schedule status
+      parameters:
+        - in: path
+          name: examId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: scheduleId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [SCHEDULED, COMPLETED, CANCELLED]
+      responses:
+        '200':
+          description: Schedule status changed
+
+  # =========================================================
+  # RESULTS
+  # =========================================================
+  /results:
+    get:
+      tags: [Results]
+      summary: List and filter results
+      parameters:
+        - in: query
+          name: examId
+          schema:
+            type: string
+        - in: query
+          name: studentId
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated results list
+    post:
+      tags: [Results]
+      summary: Create a result
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [studentId, examId, subjectId, maxMarks, marksObtained]
+              properties:
+                studentId:
+                  type: string
+                examId:
+                  type: string
+                subjectId:
+                  type: string
+                maxMarks:
+                  type: number
+                marksObtained:
+                  type: number
+      responses:
+        '201':
+          description: Result created successfully
+        '409':
+          description: Duplicate result detected
+        '422':
+          description: Marks validation failure
+
+  /results/bulk:
+    post:
+      tags: [Results]
+      summary: Submit multiple results
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [examId, results]
+              properties:
+                examId:
+                  type: string
+                results:
+                  type: array
+                  items:
+                    type: object
+                    required: [studentId, subjectId, maxMarks, marksObtained]
+                    properties:
+                      studentId:
+                        type: string
+                      subjectId:
+                        type: string
+                      maxMarks:
+                        type: number
+                      marksObtained:
+                        type: number
+      responses:
+        '201':
+          description: Bulk results created
+
+  /results/{resultId}:
+    get:
+      tags: [Results]
+      summary: Retrieve result details
+      parameters:
+        - in: path
+          name: resultId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Result details
+    patch:
+      tags: [Results]
+      summary: Update editable result or submit authorized correction
+      parameters:
+        - in: path
+          name: resultId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                marksObtained:
+                  type: number
+                reason:
+                  type: string
+                  description: Required when correcting a PUBLISHED result
+      responses:
+        '200':
+          description: Result updated
+        '422':
+          description: Missing correction reason for published result
+
+  /results/{resultId}/publish:
+    post:
+      tags: [Results]
+      summary: Publish result after grade verification
+      parameters:
+        - in: path
+          name: resultId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Result published successfully
+
+  /results/student/{studentId}:
+    get:
+      tags: [Results]
+      summary: Retrieve all results for a student
+      parameters:
+        - in: path
+          name: studentId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Student results list
+
+  /results/exam/{examId}:
+    get:
+      tags: [Results]
+      summary: Retrieve all results for an examination
+      parameters:
+        - in: path
+          name: examId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Exam results list
+
+  /results/student/{studentId}/report-card:
+    get:
+      tags: [Results]
+      summary: Retrieve consolidated report-card data with overall percentage and grade
+      parameters:
+        - in: path
+          name: studentId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: examId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Report card generated successfully
+
+  # =========================================================
+  # MASTERS
+  # =========================================================
+  /masters/{category}:
+    get:
+      tags: [Masters]
+      summary: List master records in category
+      parameters:
+        - in: path
+          name: category
+          required: true
+          schema:
+            type: string
+            enum: [academic-years, exam-types, exam-periods, classes, sections, subjects, grading-schemes, grade-ranges, examination-rooms]
+      responses:
+        '200':
+          description: Paginated list of master records
+    post:
+      tags: [Masters]
+      summary: Create a master record
+      parameters:
+        - in: path
+          name: category
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, name]
+              properties:
+                code:
+                  type: string
+                name:
+                  type: string
+                capacity:
+                  type: integer
+                ranges:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '201':
+          description: Master record created
+        '409':
+          description: Duplicate code in school scope
+
+  /masters/{category}/{id}:
+    get:
+      tags: [Masters]
+      summary: Retrieve a master record
+      parameters:
+        - in: path
+          name: category
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Master record
+    patch:
+      tags: [Masters]
+      summary: Update a master record
+      parameters:
+        - in: path
+          name: category
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                capacity:
+                  type: integer
+      responses:
+        '200':
+          description: Master record updated
+
+  /masters/{category}/{id}/status:
+    patch:
+      tags: [Masters]
+      summary: Activate or deactivate a master record
+      parameters:
+        - in: path
+          name: category
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [ACTIVE, INACTIVE]
+      responses:
+        '200':
+          description: Master status updated
+
+  # =========================================================
+  # SETTINGS
+  # =========================================================
+  /settings:
+    get:
+      tags: [Settings]
+      summary: Retrieve application and school settings
+      responses:
+        '200':
+          description: List of settings
+
+  /settings/school-profile:
+    get:
+      tags: [Settings]
+      summary: Retrieve school profile
+      responses:
+        '200':
+          description: School profile
+    patch:
+      tags: [Settings]
+      summary: Update school profile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SchoolProfile'
+      responses:
+        '200':
+          description: School profile updated
+
+  /settings/bulk:
+    patch:
+      tags: [Settings]
+      summary: Bulk update multiple settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [settings]
+              properties:
+                settings:
+                  type: array
+                  items:
+                    type: object
+                    required: [key, value]
+                    properties:
+                      key:
+                        type: string
+                      value: {}
+      responses:
+        '200':
+          description: Settings updated
+
+  /settings/{key}:
+    get:
+      tags: [Settings]
+      summary: Retrieve setting by key
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Setting value
+    patch:
+      tags: [Settings]
+      summary: Update setting value
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value: {}
+      responses:
+        '200':
+          description: Setting updated
+
+  # =========================================================
+  # ACCOUNT
+  # =========================================================
+  /account/me:
+    get:
+      tags: [Account]
+      summary: Retrieve authenticated user profile
+      responses:
+        '200':
+          description: Authenticated user details
+    patch:
+      tags: [Account]
+      summary: Update authenticated user profile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                contactNumber:
+                  type: string
+                profileImageUrl:
+                  type: string
+      responses:
+        '200':
+          description: Profile updated
+
+  /account/me/preferences:
+    get:
+      tags: [Account]
+      summary: Retrieve user preferences
+      responses:
+        '200':
+          description: User preferences
+    patch:
+      tags: [Account]
+      summary: Update user preferences
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                theme:
+                  type: string
+                  enum: [light, dark, system]
+                notificationsEnabled:
+                  type: boolean
+                emailDigest:
+                  type: boolean
+                language:
+                  type: string
+      responses:
+        '200':
+          description: Preferences updated
+
+  /account/me/change-password:
+    post:
+      tags: [Account]
+      summary: Change password with verification of current password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+      responses:
+        '200':
+          description: Password updated
+        '400':
+          description: Current password incorrect or new password weak
